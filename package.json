@@ -1,0 +1,296 @@
+{
+  "name": "ai-coding-agent",
+  "displayName": "AI Coding Agent",
+  "description": "Agentic AI coding assistant inside VS Code: chat, live multi-file edits, terminal execution, auto-debugging and autonomous project work.",
+  "version": "0.1.0",
+  "publisher": "arpit-singh",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0",
+    "node": ">=18"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "ai",
+    "agent",
+    "coding assistant",
+    "copilot alternative",
+    "llm"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "aiCodingAgentContainer",
+          "title": "AI Coding Agent",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "aiCodingAgentContainer": [
+        {
+          "id": "aiCodingAgent.chatView",
+          "name": "Chat",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "aiCodingAgent.openChat",
+        "title": "Open Chat",
+        "category": "AI Coding Agent"
+      },
+      {
+        "command": "aiCodingAgent.askCurrentFile",
+        "title": "Ask About Current File",
+        "category": "AI Coding Agent"
+      },
+      {
+        "command": "aiCodingAgent.editSelection",
+        "title": "Edit Selected Code",
+        "category": "AI Coding Agent"
+      },
+      {
+        "command": "aiCodingAgent.explainError",
+        "title": "Explain Error",
+        "category": "AI Coding Agent"
+      },
+      {
+        "command": "aiCodingAgent.fixCurrentFile",
+        "title": "Fix Current File",
+        "category": "AI Coding Agent"
+      },
+      {
+        "command": "aiCodingAgent.runProject",
+        "title": "Run Project",
+        "category": "AI Coding Agent"
+      },
+      {
+        "command": "aiCodingAgent.runTests",
+        "title": "Run Tests",
+        "category": "AI Coding Agent"
+      },
+      {
+        "command": "aiCodingAgent.reviewChanges",
+        "title": "Review Changes",
+        "category": "AI Coding Agent"
+      },
+      {
+        "command": "aiCodingAgent.stopAgent",
+        "title": "Stop Agent",
+        "category": "AI Coding Agent"
+      },
+      {
+        "command": "aiCodingAgent.newChat",
+        "title": "New Chat",
+        "category": "AI Coding Agent"
+      },
+      {
+        "command": "aiCodingAgent.clearChat",
+        "title": "Clear Chat",
+        "category": "AI Coding Agent"
+      },
+      {
+        "command": "aiCodingAgent.setApiKey",
+        "title": "Set API Key",
+        "category": "AI Coding Agent"
+      },
+      {
+        "command": "aiCodingAgent.clearApiKey",
+        "title": "Clear API Key",
+        "category": "AI Coding Agent"
+      },
+      {
+        "command": "aiCodingAgent.openSettings",
+        "title": "Open Settings",
+        "category": "AI Coding Agent"
+      },
+      {
+        "command": "aiCodingAgent.undoLastChange",
+        "title": "Undo Last Agent Change",
+        "category": "AI Coding Agent"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "aiCodingAgent.openChat",
+        "key": "ctrl+alt+a",
+        "mac": "cmd+alt+a"
+      },
+      {
+        "command": "aiCodingAgent.askCurrentFile",
+        "key": "ctrl+alt+q",
+        "mac": "cmd+alt+q"
+      },
+      {
+        "command": "aiCodingAgent.editSelection",
+        "key": "ctrl+alt+k",
+        "mac": "cmd+alt+k"
+      },
+      {
+        "command": "aiCodingAgent.explainError",
+        "key": "ctrl+alt+x",
+        "mac": "cmd+alt+x"
+      },
+      {
+        "command": "aiCodingAgent.stopAgent",
+        "key": "ctrl+alt+s",
+        "mac": "cmd+alt+s"
+      }
+    ],
+    "configuration": {
+      "title": "AI Coding Agent",
+      "properties": {
+        "aiCodingAgent.provider": {
+          "type": "string",
+          "enum": [
+            "openai",
+            "anthropic",
+            "gemini",
+            "ollama",
+            "custom"
+          ],
+          "enumDescriptions": [
+            "OpenAI API (api.openai.com)",
+            "Anthropic Claude API",
+            "Google Gemini (OpenAI-compatible endpoint)",
+            "Local Ollama / LM Studio / llama.cpp (OpenAI-compatible)",
+            "Any OpenAI-compatible endpoint"
+          ],
+          "default": "openai",
+          "description": "AI provider to use."
+        },
+        "aiCodingAgent.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Override API base URL. Leave empty for provider default. Example: http://localhost:11434/v1"
+        },
+        "aiCodingAgent.model": {
+          "type": "string",
+          "default": "",
+          "description": "Model ID. Leave empty for provider default (e.g. gpt-4o-mini, claude-sonnet-4-5, gemini-2.5-flash, qwen2.5-coder)."
+        },
+        "aiCodingAgent.temperature": {
+          "type": "number",
+          "default": 0.2,
+          "minimum": 0,
+          "maximum": 2,
+          "description": "Sampling temperature."
+        },
+        "aiCodingAgent.maxTokens": {
+          "type": "number",
+          "default": 4096,
+          "minimum": 256,
+          "description": "Maximum tokens per model response."
+        },
+        "aiCodingAgent.maxIterations": {
+          "type": "number",
+          "default": 25,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Maximum agent tool-loop iterations per request."
+        },
+        "aiCodingAgent.requireApprovalForEdits": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ask before writing or editing files."
+        },
+        "aiCodingAgent.requireApprovalForCommands": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ask before executing terminal commands."
+        },
+        "aiCodingAgent.autoApproveReads": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow reading workspace files without approval."
+        },
+        "aiCodingAgent.maxContextFiles": {
+          "type": "number",
+          "default": 40,
+          "minimum": 1,
+          "maximum": 400,
+          "description": "Maximum number of files attached to a request automatically."
+        },
+        "aiCodingAgent.maxContextBytes": {
+          "type": "number",
+          "default": 200000,
+          "description": "Approximate byte budget for automatic project context."
+        },
+        "aiCodingAgent.excludeGlobs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/node_modules/**",
+            "**/.git/**",
+            "**/dist/**",
+            "**/out/**",
+            "**/build/**",
+            "**/.next/**",
+            "**/__pycache__/**",
+            "**/venv/**",
+            "**/.venv/**",
+            "**/*.lock",
+            "**/*.min.js",
+            "**/*.map"
+          ],
+          "description": "Globs excluded from AI context and file listing."
+        },
+        "aiCodingAgent.secretFilePatterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/.env",
+            "**/.env.*",
+            "**/*.pem",
+            "**/*.key",
+            "**/id_rsa*",
+            "**/*.p12",
+            "**/secrets/**"
+          ],
+          "description": "Files never sent to the AI or shown in context."
+        },
+        "aiCodingAgent.commandTimeoutMs": {
+          "type": "number",
+          "default": 120000,
+          "description": "Timeout for agent-run shell commands."
+        },
+        "aiCodingAgent.allowNetworkTools": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow the agent to use network-related tools (reserved)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "npm run build && node --test out/tests/*.test.js",
+    "package": "vsce package --no-dependencies",
+    "lint": "tsc -p ./ --noEmit",
+    "smoke": "node scripts/smoke.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.2.1",
+    "typescript": "^5.6.3"
+  }
+}

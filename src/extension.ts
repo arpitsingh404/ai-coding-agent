@@ -1,0 +1,295 @@
+﻿import * as vscode from 'vscode';
+import { Agent } from './agent/agent';
+import { readConfig, getApiKey, setApiKey, deleteApiKey, resolveModel } from './config/settings';
+import { createProvider } from './providers';
+import { ChatPanel } from './webview/panel';
+import { ChangeTracker, DiffContentProvider } from './workspace/changes';
+import { WorkspaceFiles } from './workspace/files';
+import { CommandRunner } from './terminal/runner';
+import { pickProblemForPrompt } from './debug/diagnostics';
+
+let runner: CommandRunner | undefined;
+let statusItem: vscode.StatusBarItem | undefined;
+let cachedKey: string | undefined;
+
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
+    const files = new WorkspaceFiles(readConfig);
+    runner = new CommandRunner();
+
+    const tracker = new ChangeTracker(async (rel) => {
+        try {
+            return await files.readText(rel);
+        } catch {
+            return null;
+        }
+    });
+
+    const diffProvider = new DiffContentProvider();
+    context.subscriptions.push(
+        vscode.workspace.registerTextDocumentContentProvider(DiffContentProvider.scheme, diffProvider)
+    );
+
+    const refreshKey = async () => {
+        cachedKey = await getApiKey(context, readConfig().provider);
+    };
+    await refreshKey();
+
+    const panel = new ChatPanel(
+        context,
+        (ui) => new Agent({
+            cfg: readConfig,
+            ui,
+            files,
+            runner: runner!,
+            tracker,
+            provider: () => {
+                const cfg = readConfig();
+                return createProvider(cfg, cachedKey);
+            }
+        }),
+        async () => {
+            const cfg = readConfig();
+            if (cfg.provider === 'ollama') { return true; }
+            return !!(await getApiKey(context, cfg.provider));
+        }
+    );
+
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider(ChatPanel.viewType, panel, {
+            webviewOptions: { retainContextWhenHidden: true }
+        })
+    );
+
+    // ---------------- status bar ----------------
+    statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 90);
+    statusItem.command = 'aiCodingAgent.openChat';
+    statusItem.tooltip = 'Open AI Coding Agent';
+    const updateStatus = () => {
+        const cfg = readConfig();
+        statusItem!.text = `$(hubot) ${cfg.provider}:${resolveModel(cfg)}`;
+        statusItem!.show();
+    };
+    updateStatus();
+    context.subscriptions.push(statusItem);
+
+    // ---------------- helpers ----------------
+    const ensureWorkspace = (): boolean => {
+        if (!vscode.workspace.workspaceFolders?.length) {
+            void vscode.window.showWarningMessage('AI Coding Agent: open a folder/workspace first.');
+            return false;
+        }
+        return true;
+    };
+
+    const activeRelPath = (): string | undefined => {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) { return undefined; }
+        return vscode.workspace.asRelativePath(editor.document.uri);
+    };
+
+    const ask = async (text: string, mode: 'ask' | 'agent' = 'agent') => {
+        if (!ensureWorkspace()) { return; }
+        if (!(await panel.hasKey())) {
+            const go = await vscode.window.showWarningMessage(
+                'No API key configured for ' + readConfig().provider + '.',
+                'Set API Key'
+            );
+            if (go) { await vscode.commands.executeCommand('aiCodingAgent.setApiKey'); }
+            if (!(await panel.hasKey())) { return; }
+        }
+        await panel.focus();
+        await panel.sendPrompt(text, mode);
+    };
+
+    // ---------------- commands ----------------
+    const reg = (id: string, fn: (...args: any[]) => any) =>
+        context.subscriptions.push(vscode.commands.registerCommand(id, fn));
+
+    reg('aiCodingAgent.openChat', async () => {
+        await panel.focus();
+        await panel.pushState();
+    });
+
+    reg('aiCodingAgent.askCurrentFile', async () => {
+        const rel = activeRelPath();
+        if (!rel) {
+            void vscode.window.showInformationMessage('Open a file first.');
+            return;
+        }
+        await ask(`Explain @${rel}: what it does, its key parts, and any risks or improvements you see.`, 'ask');
+    });
+
+    reg('aiCodingAgent.editSelection', async () => {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+            void vscode.window.showInformationMessage('Open a file first.');
+            return;
+        }
+        const selection = editor.document.getText(editor.selection);
+        if (!selection.trim()) {
+            void vscode.window.showInformationMessage('Select some code first.');
+            return;
+        }
+        const instruction = await vscode.window.showInputBox({
+            prompt: 'What should happen to the selected code?',
+            placeHolder: 'e.g. refactor into a reusable function'
+        });
+        if (!instruction) { return; }
+        const rel = vscode.workspace.asRelativePath(editor.document.uri);
+        const startLine = editor.selection.start.line + 1;
+        const endLine = editor.selection.end.line + 1;
+
+        await ask(
+            `In @${rel}, lines ${startLine}-${endLine} the user selected this code:\n\n\`\`\`\n${selection.slice(0, 6000)}\n\`\`\`\n\n` +
+            `Task: ${instruction}\n\nRead the file first, then apply the change with apply_edit.`,
+            'agent'
+        );
+    });
+
+    reg('aiCodingAgent.explainError', async () => {
+        const prompt = await pickProblemForPrompt();
+        if (!prompt) {
+            void vscode.window.showInformationMessage('No problems found in the Problems panel.');
+            return;
+        }
+        await ask(prompt, 'agent');
+    });
+
+    reg('aiCodingAgent.fixCurrentFile', async () => {
+        const rel = activeRelPath();
+        if (!rel) {
+            void vscode.window.showInformationMessage('Open a file first.');
+            return;
+        }
+        await ask(
+            `Fix every diagnostic (errors and warnings) reported for @${rel}. ` +
+            `Call get_diagnostics first, read the file, apply minimal fixes, then verify the diagnostics are gone.`,
+            'agent'
+        );
+    });
+
+    reg('aiCodingAgent.runProject', async () => {
+        if (!ensureWorkspace()) { return; }
+        const info = await files.projectInfo();
+        const cmd = info.commands.dev || info.commands.start;
+        if (!cmd) {
+            void vscode.window.showWarningMessage(
+                `No dev/start script detected (package manager: ${info.commands.packageManager}).`
+            );
+            return;
+        }
+        const ok = await vscode.window.showInformationMessage(`Start the project with "${cmd}"?`, { modal: true }, 'Start');
+        if (ok !== 'Start') { return; }
+        const h = runner!.start(cmd, info.root || files.root());
+        runner!.showTerminalOutput();
+        void vscode.window.showInformationMessage(`Started: ${cmd} (id=${h.id}). Output in "AI Coding Agent â€” Terminal".`);
+    });
+
+    reg('aiCodingAgent.runTests', async () => {
+        if (!ensureWorkspace()) { return; }
+        const info = await files.projectInfo();
+        const cmd = info.commands.test;
+        if (!cmd) {
+            void vscode.window.showWarningMessage('No test command detected for this project.');
+            return;
+        }
+        runner!.showTerminalOutput();
+        const res = await runner!.run(cmd, info.root || files.root(), 300000);
+        const verdict = res.code === 0 ? 'passed' : 'failed';
+        void vscode.window.showInformationMessage(`Tests ${verdict} (exit ${res.code}). See output channel.`);
+    });
+
+    reg('aiCodingAgent.reviewChanges', async () => {
+        const recent = tracker.recent(20);
+        if (!recent.length) {
+            void vscode.window.showInformationMessage('The agent has not changed any files yet.');
+            return;
+        }
+        const pick = await vscode.window.showQuickPick(
+            recent.map((r) => ({
+                label: `${r.kind === 'create' ? '$(add)' : r.kind === 'delete' ? '$(trash)' : '$(edit)'} ${r.rel}`,
+                description: new Date(r.at).toLocaleTimeString(),
+                detail: r.kind,
+                rec: r
+            })),
+            { placeHolder: 'Review an agent change' }
+        );
+        if (!pick) { return; }
+        await tracker.showDiff((pick as any).rec);
+    });
+
+    reg('aiCodingAgent.undoLastChange', async () => {
+        const msg = await tracker.undoLast(
+            async (rel, content) => { await files.writeText(rel, content); },
+            async (rel) => { await files.deleteFile(rel); }
+        );
+        void vscode.window.showInformationMessage(msg);
+    });
+
+    reg('aiCodingAgent.stopAgent', () => {
+        if (!panel.isRunning) {
+            void vscode.window.showInformationMessage('The agent is not running.');
+            return;
+        }
+        panel.stop();
+    });
+
+    reg('aiCodingAgent.newChat', async () => {
+        panel.reset();
+        await panel.focus();
+    });
+
+    reg('aiCodingAgent.clearChat', async () => {
+        panel.reset();
+        await vscode.window.showInformationMessage('Chat cleared.');
+    });
+
+    reg('aiCodingAgent.setApiKey', async () => {
+        const cfg = readConfig();
+        const key = await vscode.window.showInputBox({
+            title: `API key for ${cfg.provider}`,
+            prompt: 'Stored in VS Code SecretStorage (never written to settings files).',
+            password: true,
+            ignoreFocusOut: true
+        });
+        if (!key) { return; }
+        await setApiKey(context, cfg.provider, key.trim());
+        await refreshKey();
+        await panel.pushState();
+        void vscode.window.showInformationMessage(`API key saved for ${cfg.provider}.`);
+    });
+
+    reg('aiCodingAgent.clearApiKey', async () => {
+        const cfg = readConfig();
+        await deleteApiKey(context, cfg.provider);
+        await refreshKey();
+        await panel.pushState();
+        void vscode.window.showInformationMessage(`API key removed for ${cfg.provider}.`);
+    });
+
+    reg('aiCodingAgent.openSettings', async () => {
+        await vscode.commands.executeCommand('workbench.action.openSettings', 'aiCodingAgent');
+    });
+
+    // ---------------- config changes ----------------
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration(async (e) => {
+            if (!e.affectsConfiguration('aiCodingAgent')) { return; }
+            await refreshKey();
+            updateStatus();
+            await panel.pushState();
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.window.onDidChangeActiveTextEditor(() => { /* reserved for context hints */ })
+    );
+}
+
+export function deactivate(): void {
+    runner?.dispose();
+    runner = undefined;
+    statusItem?.dispose();
+    statusItem = undefined;
+}
+
