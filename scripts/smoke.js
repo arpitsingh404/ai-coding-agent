@@ -54,6 +54,7 @@ const vscodeStub = {
         }),
         createStatusBarItem: () => ({ text: '', tooltip: '', command: '', show() {}, hide() {}, dispose() {} }),
         registerWebviewViewProvider: () => ({ dispose() {} }),
+        registerUriHandler: () => ({ dispose() {} }),
         showInformationMessage: async () => undefined,
         showWarningMessage: async () => undefined,
         showErrorMessage: async () => undefined,
@@ -92,12 +93,24 @@ async function main() {
     }
 
     const secrets = new Map();
+    const state = new Map();
     const context = {
         subscriptions: [],
         secrets: {
             get: async (k) => secrets.get(k),
             store: async (k, v) => { secrets.set(k, v); },
             delete: async (k) => { secrets.delete(k); }
+        },
+        globalState: {
+            get: (k, d) => (state.has(k) ? state.get(k) : d),
+            update: async (k, v) => { state.set(k, v); },
+            keys: () => [...state.keys()],
+            setKeysForSync: () => undefined
+        },
+        workspaceState: {
+            get: (k, d) => d,
+            update: async () => undefined,
+            keys: () => []
         }
     };
 
@@ -119,7 +132,12 @@ async function main() {
         'aiCodingAgent.setApiKey',
         'aiCodingAgent.clearApiKey',
         'aiCodingAgent.openSettings',
-        'aiCodingAgent.undoLastChange'
+        'aiCodingAgent.undoLastChange',
+        'aiCodingAgent.undoAllChanges',
+        'aiCodingAgent.showMemory',
+        'aiCodingAgent.clearMemory',
+        'aiCodingAgent.chatHistory',
+        'aiCodingAgent.clearSession'
     ];
 
     let missing = 0;

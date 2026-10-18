@@ -65,6 +65,33 @@ export class ChangeTracker {
         }
     }
 
+    /** Revert every recorded change (newest first). */
+    async undoAll(write: (rel: string, content: string) => Promise<void>, remove: (rel: string) => Promise<void>): Promise<string> {
+        const all = [...this.history].reverse();
+        if (!all.length) { return 'Nothing to undo.'; }
+        let restored = 0;
+        let removed = 0;
+        let failed = 0;
+        for (const rec of all) {
+            try {
+                if (rec.kind === 'create' || rec.before === null) {
+                    await remove(rec.rel);
+                    removed++;
+                } else {
+                    await write(rec.rel, rec.before);
+                    restored++;
+                }
+            } catch {
+                failed++;
+            }
+        }
+        this.history.length = 0;
+        const parts = [`Restored ${restored} file(s)`];
+        if (removed) { parts.push(`removed ${removed}`); }
+        if (failed) { parts.push(`${failed} failed`); }
+        return parts.join(', ') + '.';
+    }
+
     async showDiff(rec: ChangeRecord, label = 'before'): Promise<void> {
         const left = DiffContentProvider.makeUri(`${rec.rel} (${label})`, rec.before ?? '');
         const right = DiffContentProvider.makeUri(`${rec.rel} (after)`, rec.after);

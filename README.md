@@ -4,6 +4,10 @@ An agentic AI software engineer inside VS Code. Chat in **English, Hindi or Hing
 
 Not a chatbot that prints code — it edits your workspace, with your approval on every risky step.
 
+> **New in 0.3.0:** persistent memory (`remember` / `recall` / `forget` tools + commands), multi-message queue (send while the agent is working), fixed task/plan tracker with progress bar, and 8 new memory tests.
+>
+> **0.2.0:** slash commands, `@file` / `@selection` context, "Always allow" approvals, undo-all, live token meter, project rules (`AGENTS.md`), persistent chat history, deep-link task triggering and a marketplace icon.
+
 ---
 
 ## Features
@@ -118,9 +122,52 @@ Provider defaults:
 | Run Tests | — |
 | Review Changes | — |
 | Undo Last Agent Change | — |
+| Undo All Agent Changes | — |
 | Stop Agent | `Ctrl+Alt+S` |
 | New Chat / Clear Chat | — |
 | Set / Clear API Key | — |
+
+### Slash commands (inside the chat)
+
+| Command | What it does |
+|---|---|
+| `/help` | show all commands |
+| `/explain [file]` | explain code (read-only) |
+| `/fix [file]` | fix diagnostics in a file |
+| `/test` | run the project test command |
+| `/run` | start the dev server |
+| `/plan <task>` | plan first, then execute |
+| `/clear` | new chat |
+
+### Context references
+
+- `@src/app/page.tsx` — attach that file to the message
+- `@selection` — attach the current editor selection (file + line range)
+
+### Project rules
+
+Put an `AGENTS.md` (or `.ai-agent.md`, `.cursorrules`, `.github/copilot-instructions.md`) at the workspace root. Its contents are injected into the system prompt for every request — house style, stack rules, do-not-touch list, etc.
+
+### Memory
+
+The agent has its own persistent memory (survives reloads and works across projects):
+
+- It calls `remember` when you state a durable preference/fact ("use pnpm", "deploy target is vclub.tech", "reply in Hinglish").
+- Relevant memories are injected into the system prompt automatically.
+- `recall` searches memory on demand, `forget` removes an entry.
+- Commands: **AI Coding Agent: Show Memory** (add / delete) and **Clear Memory**.
+
+### Message queue
+
+You can keep typing while the agent works — the composer switches to **Queue**. Queued messages are sent automatically, in order, as soon as the current turn finishes. **Stop** cancels only the running turn.
+
+### Deep link
+
+Start a task from anywhere:
+
+```
+vscode://arpit-singh.ai-coding-agent/run?mode=agent&prompt=Build%20a%20login%20page
+```
 
 ---
 
@@ -202,6 +249,15 @@ npm run package
 
 ---
 
+## Privacy
+
+- **No backend of ours.** Requests go straight from the user's VS Code to the AI provider they configured (OpenAI / Anthropic / Gemini / DeepSeek / local Ollama). Nothing passes through the author.
+- **Keys are per-user.** Each user stores their own key with *AI Coding Agent: Set API Key*, saved in VS Code **SecretStorage** (OS-encrypted). The extension ships with **no key** and never transmits one anywhere except the provider's own API.
+- **What leaves the machine:** the prompt, the selected files' contents (minus secrets/ignored paths) and tool results, sent to the configured provider. Users who need full privacy should point `aiCodingAgent.baseUrl` at a local model (Ollama).
+- **What is never sent:** `.env`, `*.pem`, `*.key`, `id_rsa*`, and anything matching `aiCodingAgent.secretFilePatterns`.
+- **Local data:** chat transcript + memory live in the extension's `globalState` on the user's machine and can be cleared any time.
+
 ## License
 
-MIT
+MIT — the full text is in the bundled `LICENSE` file.
+

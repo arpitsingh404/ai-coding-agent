@@ -59,6 +59,27 @@ export function getHtml(nonce: string, state: UiState): string {
     padding: 2px 8px; font-size: 11px; color: var(--muted);
     white-space: nowrap; max-width: 180px; overflow: hidden; text-overflow: ellipsis;
   }
+  .chip-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 3px 10px; font-size: 11px; color: var(--fg);
+    background: linear-gradient(180deg, rgba(124,92,255,.18), rgba(56,132,255,.10));
+    max-width: 210px; cursor: pointer;
+  }
+  .chip-btn:hover { border-color: var(--accent); }
+  .chip-btn .caret { color: var(--muted); font-size: 9px; }
+  .menu-title {
+    padding: 4px 8px 2px; font-size: 9.5px; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .model-menu { min-width: 220px; max-height: 380px; overflow: auto; }
+  .model-menu button { display: flex; justify-content: space-between; gap: 8px; }
+  .model-menu .tag {
+    font-size: 9px; padding: 1px 5px; border-radius: 999px;
+    background: rgba(124,92,255,.25); color: #cfc6ff;
+  }
+  .quick { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 12px; }
+  .quick button { font-size: 11px; padding: 4px 9px; border-radius: 999px; }
   button {
     background: transparent; color: var(--fg); border: 1px solid var(--border);
     border-radius: 6px; padding: 3px 8px; font-size: 11px; cursor: pointer;
@@ -76,9 +97,16 @@ export function getHtml(nonce: string, state: UiState): string {
 
   #plan {
     padding: 6px 10px; border-bottom: 1px solid var(--border);
-    display: none; max-height: 140px; overflow: auto; font-size: 11.5px;
+    display: none; max-height: 200px; overflow: auto; font-size: 11.5px;
   }
+  #plan .plan-head {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 4px;
+    color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em;
+  }
+  #plan .plan-bar { flex: 1; height: 4px; border-radius: 4px; background: rgba(128,128,128,.25); overflow: hidden; }
+  #plan .plan-fill { height: 100%; background: var(--ok); width: 0%; transition: width .25s ease; }
   #plan .step { display: flex; gap: 6px; padding: 2px 0; align-items: flex-start; }
+  #plan .step.active { font-weight: 600; }
   #plan .bullet { width: 14px; flex: 0 0 14px; text-align: center; }
   .s-pending { color: var(--muted); }
   .s-in_progress { color: var(--warn); }
@@ -144,6 +172,21 @@ export function getHtml(nonce: string, state: UiState): string {
   .err { border-left: 2px solid var(--bad); padding-left: 8px; color: var(--bad); font-size: 12px; }
   .info { border-left: 2px solid var(--accent); padding-left: 8px; color: var(--muted); font-size: 12px; }
 
+  .menu-wrap { position: relative; }
+  .menu {
+    display: none; position: absolute; right: 0; top: calc(100% + 4px); z-index: 50;
+    min-width: 170px; padding: 4px; border-radius: 8px;
+    background: var(--vscode-menu-background, #14141c);
+    border: 1px solid var(--vscode-menu-border, var(--border));
+    box-shadow: 0 6px 20px rgba(0,0,0,.45);
+  }
+  .menu.open { display: block; }
+  .menu button {
+    display: block; width: 100%; text-align: left; border: 0; border-radius: 5px;
+    padding: 5px 8px; font-size: 11.5px;
+  }
+  .menu button:hover { background: var(--vscode-menu-selectionBackground, var(--accent)); color: var(--vscode-menu-selectionForeground, #fff); }
+
   footer { border-top: 1px solid var(--border); padding: 8px; display: flex; flex-direction: column; gap: 6px; }
   #activity { font-size: 11px; color: var(--muted); min-height: 14px; display: flex; gap: 8px; align-items: center; }
   .composer { display: flex; gap: 6px; align-items: flex-end; }
@@ -164,7 +207,28 @@ export function getHtml(nonce: string, state: UiState): string {
 <body>
 <header>
   <span class="brand"><span class="dot" id="dot"></span>AI Coding Agent</span>
-  <span class="chip" id="modelChip">…</span>
+  <div class="menu-wrap">
+    <button id="modelBtn" class="chip-btn" title="Switch model">
+      <span id="modelChip">…</span><span class="caret">▾</span>
+    </button>
+    <div id="modelMenu" class="menu model-menu">
+      <div class="menu-title">DeepSeek</div>
+      <button data-provider="custom" data-model="deepseek-v4-pro">deepseek-v4-pro <span class="tag">agent</span></button>
+      <button data-provider="custom" data-model="deepseek-flash">deepseek-flash <span class="tag">fast</span></button>
+      <div class="menu-title">OpenAI</div>
+      <button data-provider="openai" data-model="gpt-4o-mini">gpt-4o-mini</button>
+      <button data-provider="openai" data-model="gpt-4o">gpt-4o</button>
+      <div class="menu-title">Anthropic</div>
+      <button data-provider="anthropic" data-model="claude-sonnet-4-5">claude-sonnet-4-5</button>
+      <button data-provider="anthropic" data-model="claude-opus-4-1">claude-opus-4-1</button>
+      <div class="menu-title">Google</div>
+      <button data-provider="gemini" data-model="gemini-2.5-flash">gemini-2.5-flash</button>
+      <button data-provider="gemini" data-model="gemini-2.5-pro">gemini-2.5-pro</button>
+      <div class="menu-title">Local (Ollama)</div>
+      <button data-provider="ollama" data-model="qwen2.5-coder:7b">qwen2.5-coder:7b</button>
+      <button data-provider="ollama" data-model="llama3.2:3b">llama3.2:3b</button>
+    </div>
+  </div>
   <div class="spacer"></div>
   <div class="modes">
     <button id="modeAsk" title="Read-only answers">Ask</button>
@@ -172,7 +236,17 @@ export function getHtml(nonce: string, state: UiState): string {
   </div>
   <button id="btnNew" title="New chat">New</button>
   <button id="btnStop" class="danger" disabled title="Stop the agent">Stop</button>
-  <button id="btnSettings" title="Open settings">⚙</button>
+  <div class="menu-wrap">
+    <button id="btnMenu" title="More actions">⋯</button>
+    <div id="menu" class="menu">
+      <button data-act="new">New chat</button>
+      <button data-act="history">Chat history…</button>
+      <button data-act="clear">Clear chat</button>
+      <button data-act="clearSession">Clear session</button>
+      <button data-act="memory">Memory…</button>
+      <button data-act="settings">Settings</button>
+    </div>
+  </div>
 </header>
 
 <div id="plan"></div>
@@ -181,16 +255,22 @@ export function getHtml(nonce: string, state: UiState): string {
     <b>Ask anything about this project.</b><br/>
     Try: <i>"Mere project mein login page banao"</i><br/>
     or <i>"@src/app.ts explain this file"</i>
+    <div class="quick">
+      <button data-q="Explain the current file: what it does, its key parts and any risks.">Explain file</button>
+      <button data-q="/fix">Fix errors</button>
+      <button data-q="/test">Run tests</button>
+      <button data-q="/plan Add a dark mode toggle">Plan a feature</button>
+    </div>
   </div>
 </div>
 
 <footer>
   <div id="activity"></div>
   <div class="composer">
-    <textarea id="input" rows="1" placeholder="Describe a task…  (Enter to send, Shift+Enter for newline)"></textarea>
+    <textarea id="input" rows="1" placeholder="Task likho…  /help se commands, @file se context attach"></textarea>
     <button id="btnSend" class="primary">Send</button>
   </div>
-  <div class="hint">Agent mode edits real files and runs commands — you approve each step.</div>
+  <div class="hint"><span id="usage">tokens: —</span> · Agent mode edits real files — you approve each step.</div>
 </footer>
 
 <script nonce="${nonce}">
@@ -211,9 +291,34 @@ export function getHtml(nonce: string, state: UiState): string {
   let current = null;       // current assistant element
   let pending = new Map();  // approval/question id -> card element
 
+  // model picker
+  const modelMenu = $('modelMenu');
+  $('modelBtn').addEventListener('click', function (e) {
+    e.stopPropagation();
+    modelMenu.classList.toggle('open');
+  });
+  modelMenu.addEventListener('click', function (e) {
+    const btn = e.target.closest ? e.target.closest('button[data-model]') : null;
+    if (!btn) { return; }
+    modelMenu.classList.remove('open');
+    vscode.postMessage({ type: 'selectModel', provider: btn.dataset.provider, model: btn.dataset.model });
+  });
+
+  // quick actions in the empty state
+  messagesEl.addEventListener('click', function (e) {
+    const btn = e.target.closest ? e.target.closest('button[data-q]') : null;
+    if (!btn) { return; }
+    inputEl.value = btn.dataset.q || '';
+    send();
+  });
+
+  document.addEventListener('click', function () { modelMenu.classList.remove('open'); });
+
   function setBusy(v) {
     busy = v;
-    sendBtn.disabled = v;
+    // keep Send enabled so messages can be queued while the agent is working
+    sendBtn.disabled = false;
+    sendBtn.textContent = v ? 'Queue' : 'Send';
     stopBtn.disabled = !v;
     dotEl.className = 'dot' + (v ? ' busy' : '');
   }
@@ -318,7 +423,7 @@ export function getHtml(nonce: string, state: UiState): string {
     return '';
   }
 
-  function addCard(kind, id, title, detail, preview, risk) {
+  function addCard(kind, id, title, detail, preview, risk, command) {
     const card = document.createElement('div');
     card.className = 'card';
     card.id = 'card-' + id;
@@ -329,7 +434,8 @@ export function getHtml(nonce: string, state: UiState): string {
     html += '<div class="c-actions">' +
       (kind === 'question'
         ? '<button class="primary" data-answer="1">Answer</button>'
-        : '<button class="primary" data-accept="1">Accept</button><button data-reject="1">Reject</button>') +
+        : '<button class="primary" data-accept="1">Accept</button><button data-reject="1">Reject</button>' +
+          (command ? '<button data-always="1" title="Auto-approve this exact command for this session">Always allow</button>' : '')) +
       '</div>';
     card.innerHTML = html;
 
@@ -338,6 +444,9 @@ export function getHtml(nonce: string, state: UiState): string {
       if (t.dataset.accept) {
         vscode.postMessage({ type: 'approval', id: id, accepted: true });
         lockCard(card, 'Accepted');
+      } else if (t.dataset.always) {
+        vscode.postMessage({ type: 'approval', id: id, accepted: true, always: true, command: command });
+        lockCard(card, 'Always allowed');
       } else if (t.dataset.reject) {
         vscode.postMessage({ type: 'approval', id: id, accepted: false });
         lockCard(card, 'Rejected');
@@ -362,22 +471,46 @@ export function getHtml(nonce: string, state: UiState): string {
 
   function renderPlan(steps) {
     if (!steps || !steps.length) { planEl.style.display = 'none'; return; }
-    planEl.style.display = 'block';
+
+    // merge duplicate titles (the agent often re-publishes the same plan)
+    const merged = [];
+    const index = new Map();
+    for (const s of steps) {
+      const title = String(s.title || 'Step');
+      if (index.has(title)) {
+        merged[index.get(title)].status = s.status;
+      } else {
+        index.set(title, merged.length);
+        merged.push({ title: title, status: s.status });
+      }
+    }
+
+    const total = merged.length;
+    const done = merged.filter(function (s) { return s.status === 'completed'; }).length;
+    const pct = total ? Math.round((done / total) * 100) : 0;
     const icon = { pending: '○', in_progress: '◐', completed: '●', failed: '✕' };
-    planEl.innerHTML = steps.map(function (s) {
-      return '<div class="step"><span class="bullet s-' + s.status + '">' + (icon[s.status] || '○') + '</span>' +
-        '<span class="s-' + s.status + '">' + esc(s.title) + '</span></div>';
-    }).join('');
+
+    planEl.style.display = 'block';
+    planEl.innerHTML =
+      '<div class="plan-head"><span>' + done + '/' + total + ' steps</span>' +
+      '<span class="plan-bar"><span class="plan-fill" style="width:' + pct + '%"></span></span></div>' +
+      merged.map(function (s) {
+        return '<div class="step' + (s.status === 'in_progress' ? ' active' : '') + '">' +
+          '<span class="bullet s-' + s.status + '">' + (icon[s.status] || '○') + '</span>' +
+          '<span class="s-' + s.status + '">' + esc(s.title) + '</span></div>';
+      }).join('');
+
+    const active = planEl.querySelector('.step.active');
+    if (active && active.scrollIntoView) { active.scrollIntoView({ block: 'nearest' }); }
   }
 
   function send() {
     const text = inputEl.value.trim();
-    if (!text || busy) { return; }
+    if (!text) { return; }
     inputEl.value = '';
     inputEl.style.height = 'auto';
-    setBusy(true);
     current = null;
-    planEl.style.display = 'none';
+    if (!busy) { planEl.style.display = 'none'; }
     vscode.postMessage({ type: 'send', text: text, mode: mode });
   }
 
@@ -395,7 +528,20 @@ export function getHtml(nonce: string, state: UiState): string {
     planEl.style.display = 'none';
     vscode.postMessage({ type: 'newChat' });
   });
-  $('btnSettings').addEventListener('click', function () { vscode.postMessage({ type: 'settings' }); });
+
+  // ⋯ menu
+  const menuEl = $('menu');
+  $('btnMenu').addEventListener('click', function (e) {
+    e.stopPropagation();
+    menuEl.classList.toggle('open');
+  });
+  menuEl.addEventListener('click', function (e) {
+    const act = e.target && e.target.dataset ? e.target.dataset.act : '';
+    if (!act) { return; }
+    menuEl.classList.remove('open');
+    vscode.postMessage({ type: 'action', action: act });
+  });
+  document.addEventListener('click', function () { menuEl.classList.remove('open'); });
 
   document.addEventListener('click', function (e) {
     if (e.target.classList && e.target.classList.contains('copy')) {
@@ -421,6 +567,20 @@ export function getHtml(nonce: string, state: UiState): string {
     switch (msg.type) {
       case 'userEcho':
         addMessage('user', msg.text || '');
+        setBusy(true);
+        break;
+
+      case 'queued': {
+        const w = addMessage('user', msg.text || '');
+        const tag = document.createElement('div');
+        tag.className = 'hint';
+        tag.textContent = '⏳ queued' + (msg.position ? ' #' + msg.position : '');
+        w.wrap.appendChild(tag);
+        break;
+      }
+
+      case 'dequeued':
+        activityEl.textContent = '▶ sending queued message…';
         break;
 
       case 'state':
@@ -481,7 +641,31 @@ export function getHtml(nonce: string, state: UiState): string {
         break;
 
       case 'approval':
-        addCard('approval', msg.id, msg.req.title, msg.req.detail, msg.req.preview, msg.req.risk);
+        addCard('approval', msg.id, msg.req.title, msg.req.detail, msg.req.preview, msg.req.risk, msg.req.command);
+        break;
+
+      case 'usage':
+        $('usage').textContent = 'tokens: ' +
+          (msg.estimated ? '~' : '') + Math.round(msg.input) + ' in / ' +
+          (msg.estimated ? '~' : '') + Math.round(msg.output) + ' out';
+        break;
+
+      case 'history':
+        if (Array.isArray(msg.messages)) {
+          for (const m of msg.messages) {
+            if (m && m.text) { addMessage(m.role === 'user' ? 'user' : 'assistant', m.text); }
+          }
+        }
+        break;
+
+      case 'cleared':
+        messagesEl.innerHTML = '<div class="empty" id="empty"><b>New chat.</b><br/>Type a task or <i>/help</i> for commands.</div>';
+        planEl.style.display = 'none';
+        $('usage').textContent = 'tokens: —';
+        break;
+
+      case 'fileChanged':
+        activityEl.textContent = '✓ updated ' + msg.rel;
         break;
 
       case 'question':
@@ -505,6 +689,18 @@ export function getHtml(nonce: string, state: UiState): string {
 
   setBusy(false);
   vscode.postMessage({ type: 'ready' });
+
+  // Auto-focus the composer so the panel is ready for typing/paste.
+  function focusInput() {
+    try { inputEl.focus(); } catch (e) { /* noop */ }
+  }
+  setTimeout(focusInput, 150);
+  setTimeout(focusInput, 700);
+  window.addEventListener('focus', focusInput);
+  messagesEl.addEventListener('click', focusInput);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { focusInput(); }
+  });
 })();
 </script>
 </body>

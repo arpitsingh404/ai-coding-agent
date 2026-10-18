@@ -19,6 +19,19 @@ export class ContextBuilder {
 
     async build(task: string, cfg: AgentConfig, extraFiles: string[] = []): Promise<ContextBundle> {
         const all = await this.files.listFiles(3000);
+
+        // Project rules / conventions file (optional, first match wins)
+        const rulesParts: string[] = [];
+        for (const ruleFile of ['AGENTS.md', '.ai-agent.md', '.cursorrules', '.github/copilot-instructions.md']) {
+            try {
+                const content = await this.files.readText(ruleFile);
+                if (content && content.trim()) {
+                    rulesParts.push(`## Project rules (${ruleFile})\n${content.slice(0, 12000)}`);
+                    break;
+                }
+            } catch { /* not present */ }
+        }
+
         const exclude = new GlobSet(cfg.excludeGlobs || []);
         const secret = new GlobSet(cfg.secretFilePatterns || []);
 
@@ -60,6 +73,7 @@ export class ContextBuilder {
         const structure = eligible.slice(0, 300).map((f) => f.rel).join('\n');
         const parts: string[] = [];
 
+        if (rulesParts.length) { parts.push(rulesParts.join('\n\n')); }
         parts.push('## Project structure (relevant paths)\n```\n' + structure + '\n```');
         for (const p of picked) {
             parts.push(`## File: ${p.rel}\n\`\`\`${langFor(p.rel)}\n${p.content}\n\`\`\``);

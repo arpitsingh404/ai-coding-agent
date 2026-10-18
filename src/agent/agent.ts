@@ -18,6 +18,7 @@ export interface AgentUi {
     error(message: string): void;
     approval(req: ApprovalRequest): Promise<boolean>;
     question(question: string): Promise<string | undefined>;
+    usage?(input: number, output: number, estimated: boolean): void;
 }
 
 export interface AgentDeps {
@@ -26,6 +27,7 @@ export interface AgentDeps {
     files: WorkspaceFiles;
     runner: CommandRunner;
     tracker: ChangeTracker;
+    memory: import('../memory/memory').MemoryStore;
     provider: () => Provider;
 }
 
@@ -59,6 +61,13 @@ export class Agent {
         return this.messages;
     }
 
+    /** Restore a persisted conversation (used on reload). */
+    loadHistory(messages: ChatMessage[]): void {
+        this.messages = Array.isArray(messages)
+            ? messages.filter((m) => m && m.role && typeof m.content === 'string')
+            : [];
+    }
+
     private toolContext(ui: AgentUi): ToolContext {
         const cfg = this.deps.cfg();
         return {
@@ -67,6 +76,7 @@ export class Agent {
             files: this.deps.files,
             runner: this.deps.runner,
             tracker: this.deps.tracker,
+            memory: this.deps.memory,
             token: { get isCancellationRequested() { return false; } },
             approve: (req) => ui.approval(req),
             onPlan: (steps) => ui.plan(steps),
@@ -76,7 +86,7 @@ export class Agent {
         };
     }
 
-    async send(userText: string, mode: 'ask' | 'agent'): Promise<void> {
+    async send(userText: string, mode: 'ask' | 'agent', extraFiles: string[] = []): Promise<void> {
         if (this.running) {
             throw new Error('Agent is already working. Press Stop first.');
         }
@@ -86,12 +96,16 @@ export class Agent {
         const ui = this.deps.ui();
         if (!ui) { this.running = false; throw new Error('Chat view is not ready.'); }
 
+        let totalIn = 0;
+        let totalOut = 0;
+        let realUsage = false;
+
         try {
             const cfg = this.deps.cfg();
             ui.status('Preparing context');
             ui.activity('Reading project');
 
-            const bundle = await this.contextBuilder.build(userText, cfg);
+            const bundle = await this.contextBuilder.build(userText, cfg, extraFiles);
             ui.activity('Thinking');
 
             const userMessage: ChatMessage = {
@@ -105,17 +119,18 @@ export class Agent {
 
             const provider = this.deps.provider();
             const tools = mode === 'agent' ? TOOL_SPECS : TOOL_SPECS.filter((t) =>
-                ['read_file', 'list_files', 'search_files', 'get_diagnostics', 'get_project_info'].includes(t.name)
+                ['read_file', 'list_files', 'search_files', 'get_diagnostics', 'get_project_info', 'recall'].includes(t.name)
             );
+            const memoryBlock = this.deps.memory.relevantBlock(userText);
 
-            for (let step = 0; step < cfg.maxIterations; step++) {
+            for (let step = 0; step < this.maxSteps(cfg); step++) {
                 if (this.cancelled) { break; }
 
                 ui.status(step === 0 ? 'Thinking' : `Working (step ${step + 1})`);
                 ui.activity(step === 0 ? 'Thinking' : 'Continuing');
 
                 const result = await provider.stream(
-                    [{ role: 'system', content: this.systemPrompt(mode, cfg) }, ...this.messages],
+                    [{ role: 'system', content: this.systemPrompt(mode, cfg, memoryBlock) }, ...this.messages],
                     tools,
                     {
                         model: resolveModel(cfg),
@@ -126,6 +141,13 @@ export class Agent {
                 );
 
                 if (this.cancelled) { break; }
+
+                if (result.usage && (result.usage.input || result.usage.output)) {
+                    totalIn += result.usage.input ?? 0;
+                    totalOut += result.usage.output ?? 0;
+                    realUsage = true;
+                    ui.usage?.(totalIn, totalOut, false);
+                }
 
                 const calls: ToolCall[] = result.toolCalls || [];
                 this.messages.push({
@@ -179,16 +201,33 @@ export class Agent {
             } else {
                 ui.status('Ready');
                 ui.activity('');
-                ui.error(`Reached the ${this.deps.cfg().maxIterations}-step limit. Ask me to continue.`);
+                const hardLimit = this.maxSteps(cfg);
+                if (Number.isFinite(hardLimit)) {
+                    ui.error(`Reached the ${hardLimit}-step limit. Ask me to continue.`);
+                }
             }
         } catch (e: any) {
             ui?.status('Error');
             ui?.activity('');
             ui?.error(e?.message ?? String(e));
         } finally {
+            if (!realUsage) {
+                const chars = this.messages.reduce((n, m) => n + m.content.length, 0);
+                const estIn = Math.round(chars / 4);
+                const estOut = Math.round(this.messages
+                    .filter((m) => m.role === 'assistant')
+                    .reduce((n, m) => n + m.content.length, 0) / 4);
+                if (estIn > 0) { this.deps.ui()?.usage?.(estIn, estOut, true); }
+            }
             this.running = false;
             this.cancelled = false;
         }
+    }
+
+    /** maxIterations <= 0 means "no step limit" (only the Stop button ends it). */
+    private maxSteps(cfg: AgentConfig): number {
+        const n = Number(cfg.maxIterations);
+        return (!Number.isFinite(n) || n <= 0) ? Number.MAX_SAFE_INTEGER : n;
     }
 
     private trim(): void {
@@ -202,7 +241,7 @@ export class Agent {
         }
     }
 
-    private systemPrompt(mode: 'ask' | 'agent', cfg: AgentConfig): string {
+    private systemPrompt(mode: 'ask' | 'agent', cfg: AgentConfig, memoryBlock = ''): string {
         const root = this.deps.files.root() || '(no folder open)';
         const workspaceName = root.split(/[\\/]/).pop() || 'workspace';
 
@@ -241,10 +280,19 @@ STYLE
 - Report progress with the tools instead of narrating.
 - When done, state clearly whether the task is verified or unverified.`;
 
+        const memorySection = memoryBlock
+            ? `\n\nPERSISTENT MEMORY (facts you already know about this user/project)
+${memoryBlock}
+
+Use these without asking again. If the user states something new and durable (preferences, stack choices, conventions, recurring constraints), call the \`remember\` tool. Never store secrets, keys or personal data that is not needed.
+`
+            : `\n\nPERSISTENT MEMORY\nYou have a memory store. When the user states a durable preference or project fact, call \`remember\`. Use \`recall\` when you need context from earlier sessions.
+`;
+
         if (mode === 'ask') {
-            return shared + `\n\nYou are in READ-ONLY mode: do not call write_file, apply_edit, delete_file, run_command or start_server.`;
+            return shared + memorySection + `\n\nYou are in READ-ONLY mode: do not call write_file, apply_edit, delete_file, run_command or start_server.`;
         }
-        return shared;
+        return shared + memorySection;
     }
 }
 

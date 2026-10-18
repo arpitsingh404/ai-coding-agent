@@ -1,4 +1,4 @@
-import * as vscode from 'vscode';
+﻿import * as vscode from 'vscode';
 import { ToolSpec } from '../providers/types';
 import { AgentConfig } from '../config/settings';
 import { WorkspaceFiles } from '../workspace/files';
@@ -7,6 +7,7 @@ import { CommandRunner, tail } from '../terminal/runner';
 import { collectDiagnostics } from '../debug/diagnostics';
 import { analyseCommand } from '../security/commandGuard';
 import { describeChange, diffToMarkdown } from '../util/diff';
+import { MemoryStore } from '../memory/memory';
 
 export interface PlanStep {
     title: string;
@@ -28,6 +29,7 @@ export interface ToolContext {
     files: WorkspaceFiles;
     runner: CommandRunner;
     tracker: ChangeTracker;
+    memory: MemoryStore;
     token: { isCancellationRequested: boolean };
     approve(req: ApprovalRequest): Promise<boolean>;
     onPlan(steps: PlanStep[]): void;
@@ -183,6 +185,35 @@ export const TOOL_SPECS: ToolSpec[] = [
             properties: { question: { type: 'string' } },
             required: ['question']
         }
+    },
+    {
+        name: 'remember',
+        description: 'Store a durable fact about the user or this project (preferences, stack, conventions, credentials-free context). Use it whenever the user states something that should still be true in future sessions.',
+        parameters: {
+            type: 'object',
+            properties: {
+                text: { type: 'string', description: 'Short, self-contained statement, e.g. "User prefers TypeScript + Tailwind and Hinglish replies".' },
+                tags: { type: 'array', items: { type: 'string' } }
+            },
+            required: ['text']
+        }
+    },
+    {
+        name: 'recall',
+        description: 'Search your persistent memory for facts relevant to the current task.',
+        parameters: {
+            type: 'object',
+            properties: { query: { type: 'string' } }
+        }
+    },
+    {
+        name: 'forget',
+        description: 'Delete a memory entry by id (use recall first to find the id).',
+        parameters: {
+            type: 'object',
+            properties: { id: { type: 'string' } },
+            required: ['id']
+        }
     }
 ];
 
@@ -236,7 +267,7 @@ export async function executeTool(name: string, args: Record<string, unknown>, c
                 const ok = await ctx.approve({
                     kind: 'write',
                     title: `${before === null ? 'Create' : 'Overwrite'} ${p}`,
-                    detail: `${describeChange(before, content)}${reason ? ' — ' + reason : ''}`,
+                    detail: `${describeChange(before, content)}${reason ? ' â€” ' + reason : ''}`,
                     preview: diffToMarkdown(before ?? '', content),
                     risk: before === null ? 'low' : 'medium'
                 });
@@ -277,7 +308,7 @@ export async function executeTool(name: string, args: Record<string, unknown>, c
                 const ok = await ctx.approve({
                     kind: 'edit',
                     title: `Edit ${p}`,
-                    detail: `${describeChange(before, after)}${reason ? ' — ' + reason : ''}`,
+                    detail: `${describeChange(before, after)}${reason ? ' â€” ' + reason : ''}`,
                     preview: diffToMarkdown(before, after),
                     risk: 'medium'
                 });
@@ -312,7 +343,7 @@ export async function executeTool(name: string, args: Record<string, unknown>, c
             const command = str(args.command).trim();
             if (!command) { return 'ERROR: command is required.'; }
 
-            const verdict = analyseCommand(command);
+            const verdict = analyseCommand(command, ctx.cfg.commandPolicy);
             if (verdict.blocked) {
                 return `BLOCKED by safety policy: ${verdict.reason}`;
             }
@@ -346,7 +377,7 @@ export async function executeTool(name: string, args: Record<string, unknown>, c
         case 'start_server': {
             const command = str(args.command).trim();
             if (!command) { return 'ERROR: command is required.'; }
-            const verdict = analyseCommand(command);
+            const verdict = analyseCommand(command, ctx.cfg.commandPolicy);
             if (verdict.blocked) { return `BLOCKED: ${verdict.reason}`; }
 
             if (ctx.cfg.requireApprovalForCommands) {
@@ -372,7 +403,7 @@ export async function executeTool(name: string, args: Record<string, unknown>, c
             const d = collectDiagnostics(ctx.root, only);
             if (!d.items.length) { return 'No diagnostics. Project is clean.'; }
             return `errors=${d.errors} warnings=${d.warnings}\n` +
-                d.items.map((i) => `${i.severity} ${i.file}:${i.line} — ${i.message}`).join('\n');
+                d.items.map((i) => `${i.severity} ${i.file}:${i.line} â€” ${i.message}`).join('\n');
         }
 
         case 'get_project_info': {
@@ -403,6 +434,27 @@ export async function executeTool(name: string, args: Record<string, unknown>, c
             const q = str(args.question);
             const answer = await ctx.confirmQuestion(q);
             return answer === undefined ? 'User dismissed the question.' : `User answered: ${answer}`;
+        }
+
+        case 'remember': {
+            const text = str(args.text);
+            const tags = Array.isArray(args.tags) ? args.tags.map((t) => String(t)) : [];
+            const entry = ctx.memory.add(text, tags);
+            return `Remembered (id=${entry.id}): ${entry.text}`;
+        }
+
+        case 'recall': {
+            const q = str(args.query);
+            const hits = ctx.memory.search(q, 10);
+            if (!hits.length) { return 'No matching memories.'; }
+            return hits
+                .map((m) => `${m.id} | ${new Date(m.createdAt).toISOString().slice(0, 10)} | ${m.text}${m.tags.length ? ' [tags: ' + m.tags.join(', ') + ']' : ''}`)
+                .join('\n');
+        }
+
+        case 'forget': {
+            const id = str(args.id);
+            return ctx.memory.remove(id) ? `Forgot ${id}.` : `No memory with id ${id}.`;
         }
 
         default:
@@ -449,8 +501,12 @@ export function describeTool(name: string, args: Record<string, unknown>): strin
         case 'get_project_info': return 'Analyse project';
         case 'update_plan': return 'Update plan';
         case 'ask_user': return 'Ask user';
+        case 'remember': return 'Save to memory';
+        case 'recall': return 'Recall memory';
+        case 'forget': return 'Forget memory';
         default: return name;
     }
 }
 
 export const vscodeApi = vscode;
+

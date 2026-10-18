@@ -2,7 +2,7 @@
   "name": "ai-coding-agent",
   "displayName": "AI Coding Agent",
   "description": "Agentic AI coding assistant inside VS Code: chat, live multi-file edits, terminal execution, auto-debugging and autonomous project work.",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "publisher": "arpit-singh",
   "license": "MIT",
   "engines": {
@@ -18,9 +18,16 @@
   "keywords": [
     "ai",
     "agent",
+    "agentic",
     "coding assistant",
     "copilot alternative",
-    "llm"
+    "llm",
+    "deepseek",
+    "openai",
+    "anthropic",
+    "ollama",
+    "vscode",
+    "code generation"
   ],
   "main": "./out/extension.js",
   "activationEvents": [
@@ -120,6 +127,31 @@
         "command": "aiCodingAgent.undoLastChange",
         "title": "Undo Last Agent Change",
         "category": "AI Coding Agent"
+      },
+      {
+        "command": "aiCodingAgent.undoAllChanges",
+        "title": "Undo All Agent Changes",
+        "category": "AI Coding Agent"
+      },
+      {
+        "command": "aiCodingAgent.showMemory",
+        "title": "Show Memory",
+        "category": "AI Coding Agent"
+      },
+      {
+        "command": "aiCodingAgent.clearMemory",
+        "title": "Clear Memory",
+        "category": "AI Coding Agent"
+      },
+      {
+        "command": "aiCodingAgent.chatHistory",
+        "title": "Chat History",
+        "category": "AI Coding Agent"
+      },
+      {
+        "command": "aiCodingAgent.clearSession",
+        "title": "Clear Session",
+        "category": "AI Coding Agent"
       }
     ],
     "keybindings": [
@@ -192,14 +224,14 @@
           "type": "number",
           "default": 4096,
           "minimum": 256,
-          "description": "Maximum tokens per model response."
+          "description": "Maximum tokens per model response (capped by the provider)."
         },
         "aiCodingAgent.maxIterations": {
           "type": "number",
           "default": 25,
-          "minimum": 1,
-          "maximum": 100,
-          "description": "Maximum agent tool-loop iterations per request."
+          "minimum": 0,
+          "maximum": 1000,
+          "description": "Maximum agent tool-loop iterations. 0 = unlimited (only the Stop button ends it)."
         },
         "aiCodingAgent.requireApprovalForEdits": {
           "type": "boolean",
@@ -274,8 +306,37 @@
           "type": "boolean",
           "default": false,
           "description": "Allow the agent to use network-related tools (reserved)."
+        },
+        "aiCodingAgent.commandPolicy": {
+          "type": "string",
+          "enum": [
+            "strict",
+            "warn",
+            "off"
+          ],
+          "enumDescriptions": [
+            "Strict: catastrophic commands (rm -rf /, mkfs, curl | bash, force-push...) are hard-blocked.",
+            "Warn: nothing is blocked, but risky commands ask for approval.",
+            "Off: no analysis at all - every command the model emits can run (approval rules still apply)."
+          ],
+          "default": "strict",
+          "description": "How the agent treats dangerous shell commands."
         }
       }
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "aiCodingAgent.newChat",
+          "group": "navigation",
+          "when": "view == aiCodingAgent.chatView"
+        },
+        {
+          "command": "aiCodingAgent.openSettings",
+          "group": "navigation",
+          "when": "view == aiCodingAgent.chatView"
+        }
+      ]
     }
   },
   "scripts": {
@@ -292,5 +353,10 @@
     "@types/vscode": "^1.90.0",
     "@vscode/vsce": "^3.2.1",
     "typescript": "^5.6.3"
+  },
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#0b0b12",
+    "theme": "dark"
   }
 }

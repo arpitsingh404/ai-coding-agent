@@ -12,6 +12,7 @@ export interface AgentConfig {
     requireApprovalForEdits: boolean;
     requireApprovalForCommands: boolean;
     autoApproveReads: boolean;
+    commandPolicy: 'strict' | 'warn' | 'off';
     maxContextFiles: number;
     maxContextBytes: number;
     excludeGlobs: string[];
@@ -34,6 +35,7 @@ export function readConfig(): AgentConfig {
         requireApprovalForEdits: c.get<boolean>('requireApprovalForEdits', true),
         requireApprovalForCommands: c.get<boolean>('requireApprovalForCommands', true),
         autoApproveReads: c.get<boolean>('autoApproveReads', true),
+        commandPolicy: c.get<'strict' | 'warn' | 'off'>('commandPolicy', 'strict'),
         maxContextFiles: c.get<number>('maxContextFiles', 40),
         maxContextBytes: c.get<number>('maxContextBytes', 200000),
         excludeGlobs: c.get<string[]>('excludeGlobs', []),
@@ -45,8 +47,23 @@ export function readConfig(): AgentConfig {
 
 const SECRET_PREFIX = 'aiCodingAgent.apiKey.';
 
+/** Environment-variable fallback so CI / power users can supply keys without the UI. */
+const ENV_NAMES: Record<string, string[]> = {
+    openai: ['OPENAI_API_KEY'],
+    anthropic: ['ANTHROPIC_API_KEY'],
+    gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
+    ollama: [],
+    custom: ['CUSTOM_API_KEY', 'DEEPSEEK_API_KEY']
+};
+
 export async function getApiKey(ctx: vscode.ExtensionContext, provider: string): Promise<string | undefined> {
-    return ctx.secrets.get(SECRET_PREFIX + provider);
+    const stored = await ctx.secrets.get(SECRET_PREFIX + provider);
+    if (stored && stored.trim()) { return stored.trim(); }
+    for (const name of ENV_NAMES[provider] ?? []) {
+        const v = process.env[name];
+        if (v && v.trim()) { return v.trim(); }
+    }
+    return undefined;
 }
 
 export async function setApiKey(ctx: vscode.ExtensionContext, provider: string, key: string): Promise<void> {

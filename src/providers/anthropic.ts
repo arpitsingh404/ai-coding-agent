@@ -85,6 +85,7 @@ export class AnthropicProvider implements Provider {
 
         let text = '';
         const blocks = new Map<number, BlockState>();
+        const usage: { input?: number; output?: number } = {};
 
         for await (const line of sseLines(res)) {
             if (!line.startsWith('data:')) { continue; }
@@ -92,6 +93,13 @@ export class AnthropicProvider implements Provider {
             if (!payload || payload === '[DONE]') { continue; }
             let ev: any;
             try { ev = JSON.parse(payload); } catch { continue; }
+
+            if (ev.type === 'message_start' && ev.message?.usage) {
+                usage.input = ev.message.usage.input_tokens;
+            }
+            if (ev.type === 'message_delta' && ev.usage) {
+                usage.output = ev.usage.output_tokens;
+            }
 
             switch (ev.type) {
                 case 'content_block_start': {
@@ -129,7 +137,7 @@ export class AnthropicProvider implements Provider {
                 args: parseArgs(b.json || '{}')
             }));
 
-        return { text, toolCalls };
+        return { text, toolCalls, usage: usage.input || usage.output ? usage : undefined };
     }
 
     private post(headers: Record<string, string>, body: unknown, signal?: AbortSignal): Promise<Response> {

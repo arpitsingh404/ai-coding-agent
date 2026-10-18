@@ -1,9 +1,12 @@
+export type CommandPolicy = 'strict' | 'warn' | 'off';
+
 /**
  * Pure command-safety analyser (no vscode import - unit tested).
  *
- * Two layers:
- *  1. Hard block list - never executed, independent of user approval.
- *  2. Risk classification - informational, drives the approval UI.
+ * policy:
+ *   strict (default) - catastrophic commands are hard-blocked
+ *   warn             - nothing is blocked, everything risky needs approval
+ *   off              - no analysis at all (100% free execution)
  */
 
 export type Risk = 'low' | 'medium' | 'high';
@@ -58,14 +61,23 @@ const MEDIUM_RISK: RegExp[] = [
 /** Commands that are fine to auto-run read-only. */
 const LOW_RISK = /^(ls|dir|cat|head|tail|pwd|whoami|node\s+-v|npm\s+-v|git\s+(status|log|diff|branch)|type|echo|grep|find\s|[a-z]+\s+--version)\b/i;
 
-export function analyseCommand(command: string): CommandVerdict {
+export function analyseCommand(command: string, policy: CommandPolicy = 'strict'): CommandVerdict {
     const cmd = (command || '').trim();
     if (!cmd) {
         return { blocked: true, reason: 'Empty command.', risk: 'high' };
     }
 
+    // 100% free mode: no rules at all
+    if (policy === 'off') {
+        return { blocked: false, risk: 'medium' };
+    }
+
     for (const rule of HARD_BLOCK) {
         if (rule.re.test(cmd)) {
+            if (policy === 'warn') {
+                // no blocking, but force an approval prompt
+                return { blocked: false, risk: 'high', reason: rule.why };
+            }
             return { blocked: true, reason: rule.why, risk: 'high' };
         }
     }

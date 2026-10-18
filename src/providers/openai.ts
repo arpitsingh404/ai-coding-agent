@@ -84,6 +84,7 @@ export class OpenAICompatibleProvider implements Provider {
 
         let text = '';
         const calls = new Map<number, DeltaToolCall>();
+        let usage: { input?: number; output?: number } | undefined;
 
         for await (const line of sseLines(res)) {
             if (!line.startsWith('data:')) { continue; }
@@ -91,6 +92,13 @@ export class OpenAICompatibleProvider implements Provider {
             if (!payload || payload === '[DONE]') { continue; }
             let json: any;
             try { json = JSON.parse(payload); } catch { continue; }
+
+            if (json.usage && typeof json.usage === 'object') {
+                usage = {
+                    input: json.usage.prompt_tokens ?? usage?.input,
+                    output: json.usage.completion_tokens ?? usage?.output
+                };
+            }
 
             const choice = json.choices?.[0];
             const delta = choice?.delta ?? {};
@@ -125,7 +133,7 @@ export class OpenAICompatibleProvider implements Provider {
                 args: parseArgs(c.function!.arguments ?? '{}')
             }));
 
-        return { text, toolCalls };
+        return { text, toolCalls, usage };
     }
 
     private post(headers: Record<string, string>, body: unknown, signal?: AbortSignal): Promise<Response> {

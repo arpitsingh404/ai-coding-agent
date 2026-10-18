@@ -7,6 +7,7 @@ import { ChangeTracker, DiffContentProvider } from './workspace/changes';
 import { WorkspaceFiles } from './workspace/files';
 import { CommandRunner } from './terminal/runner';
 import { pickProblemForPrompt } from './debug/diagnostics';
+import { MemoryStore } from './memory/memory';
 
 let runner: CommandRunner | undefined;
 let statusItem: vscode.StatusBarItem | undefined;
@@ -15,6 +16,7 @@ let cachedKey: string | undefined;
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
     const files = new WorkspaceFiles(readConfig);
     runner = new CommandRunner();
+    const memory = new MemoryStore(context, () => files.root());
 
     const tracker = new ChangeTracker(async (rel) => {
         try {
@@ -34,29 +36,70 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     };
     await refreshKey();
 
-    const panel = new ChatPanel(
-        context,
-        (ui) => new Agent({
+    // Resolve @file / @selection references in a prompt
+    const resolveRefs = async (text: string) => {
+        let out = text;
+        const filesOut: string[] = [];
+
+        if (/@selection\b/.test(out)) {
+            const ed = vscode.window.activeTextEditor;
+            if (ed && !ed.selection.isEmpty) {
+                const rel = vscode.workspace.asRelativePath(ed.document.uri);
+                const sel = ed.document.getText(ed.selection).slice(0, 8000);
+                out = out.replace(/@selection\b/g, `@${rel} (selection)`);
+                out += `\n\n<selection file="${rel}" lines="${ed.selection.start.line + 1}-${ed.selection.end.line + 1}">\n${sel}\n</selection>`;
+            }
+        }
+
+        const re = /@([\w./\\-]+\.\w+)/g;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(text)) !== null) {
+            const check = files.resolve(m[1]);
+            if (check.ok && check.relative) { filesOut.push(check.relative); }
+        }
+        return { text: out, files: [...new Set(filesOut)] };
+    };
+
+    const panel = new ChatPanel({
+        ctx: context,
+        buildAgent: (ui) => new Agent({
             cfg: readConfig,
             ui,
             files,
             runner: runner!,
             tracker,
+            memory,
             provider: () => {
                 const cfg = readConfig();
                 return createProvider(cfg, cachedKey);
             }
         }),
-        async () => {
+        hasKey: async () => {
             const cfg = readConfig();
             if (cfg.provider === 'ollama') { return true; }
             return !!(await getApiKey(context, cfg.provider));
-        }
-    );
+        },
+        resolveRefs
+    });
 
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(ChatPanel.viewType, panel, {
             webviewOptions: { retainContextWhenHidden: true }
+        })
+    );
+
+    // Deep link:  vscode://arpit-singh.ai-coding-agent/run?prompt=<urlencoded>
+    context.subscriptions.push(
+        vscode.window.registerUriHandler({
+            handleUri: async (uri: vscode.Uri) => {
+                const q = new URLSearchParams(uri.query || '');
+                const prompt = q.get('prompt') || q.get('task') || '';
+                const mode = q.get('mode') === 'ask' ? 'ask' : 'agent';
+                await panel.focus();
+                if (prompt.trim()) {
+                    await panel.sendPrompt(prompt, mode);
+                }
+            }
         })
     );
 
@@ -226,6 +269,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void vscode.window.showInformationMessage(msg);
     });
 
+    reg('aiCodingAgent.undoAllChanges', async () => {
+        const ok = await vscode.window.showWarningMessage(
+            'Revert every file change made by the agent in this session?',
+            { modal: true },
+            'Revert All'
+        );
+        if (ok !== 'Revert All') { return; }
+        const msg = await tracker.undoAll(
+            async (rel, content) => { await files.writeText(rel, content); },
+            async (rel) => { await files.deleteFile(rel); }
+        );
+        void vscode.window.showInformationMessage(msg);
+    });
+
     reg('aiCodingAgent.stopAgent', () => {
         if (!panel.isRunning) {
             void vscode.window.showInformationMessage('The agent is not running.');
@@ -240,8 +297,51 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
 
     reg('aiCodingAgent.clearChat', async () => {
-        panel.reset();
+        panel.clearSession();
         await vscode.window.showInformationMessage('Chat cleared.');
+    });
+
+    reg('aiCodingAgent.chatHistory', async () => {
+        const list = panel.sessions();
+        const items: any[] = list.slice().reverse().map((s) => ({
+            label: `$(comment-discussion) ${s.title}`,
+            description: new Date(s.at).toLocaleString(),
+            detail: `${s.transcript.length} messages`,
+            id: s.id
+        }));
+        if (list.length) {
+            items.push({ label: '', kind: vscode.QuickPickItemKind.Separator });
+            items.push({ label: '$(trash) Delete all chat history', id: '__purge' });
+        }
+        if (!items.length) {
+            void vscode.window.showInformationMessage('No saved chats yet.');
+            return;
+        }
+        const pick = await vscode.window.showQuickPick(items, { placeHolder: 'Open a past chat' });
+        if (!pick) { return; }
+        if ((pick as any).id === '__purge') {
+            const ok = await vscode.window.showWarningMessage('Delete all saved chats?', { modal: true }, 'Delete All');
+            if (ok === 'Delete All') {
+                panel.clearAllSessions();
+                void vscode.window.showInformationMessage('Chat history deleted.');
+            }
+            return;
+        }
+        await panel.focus();
+        if (!panel.restoreSession((pick as any).id)) {
+            void vscode.window.showWarningMessage('Could not restore that chat.');
+        }
+    });
+
+    reg('aiCodingAgent.clearSession', async () => {
+        const ok = await vscode.window.showWarningMessage(
+            'Clear the current session (chat + plan)? Memory stays.',
+            { modal: true },
+            'Clear Session'
+        );
+        if (ok === 'Clear Session') {
+            panel.clearSession();
+        }
     });
 
     reg('aiCodingAgent.setApiKey', async () => {
@@ -269,6 +369,52 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     reg('aiCodingAgent.openSettings', async () => {
         await vscode.commands.executeCommand('workbench.action.openSettings', 'aiCodingAgent');
+    });
+
+    reg('aiCodingAgent.showMemory', async () => {
+        const entries = memory.all();
+        if (!entries.length) {
+            const add = await vscode.window.showInformationMessage(
+                'Memory is empty. The agent saves facts automatically, or you can add one.',
+                'Add Memory'
+            );
+            if (add === 'Add Memory') {
+                const text = await vscode.window.showInputBox({ prompt: 'What should the agent remember?', ignoreFocusOut: true });
+                if (text) {
+                    memory.add(text, ['manual']);
+                    void vscode.window.showInformationMessage('Saved to memory.');
+                }
+            }
+            return;
+        }
+        const pick = await vscode.window.showQuickPick(
+            entries.slice().reverse().map((m) => ({
+                label: `$(bookmark) ${m.text.slice(0, 90)}`,
+                description: new Date(m.createdAt).toLocaleDateString(),
+                detail: m.tags.length ? 'tags: ' + m.tags.join(', ') : undefined,
+                id: m.id
+            })),
+            { placeHolder: `${entries.length} memories — pick one to delete`, matchOnDescription: true }
+        );
+        if (!pick) { return; }
+        const del = await vscode.window.showWarningMessage('Delete this memory?', { modal: true }, 'Delete');
+        if (del === 'Delete') {
+            memory.remove((pick as any).id);
+            void vscode.window.showInformationMessage('Memory deleted.');
+        }
+    });
+
+    reg('aiCodingAgent.clearMemory', async () => {
+        const count = memory.all().length;
+        if (!count) {
+            void vscode.window.showInformationMessage('Memory is already empty.');
+            return;
+        }
+        const ok = await vscode.window.showWarningMessage(`Delete all ${count} memories?`, { modal: true }, 'Delete All');
+        if (ok === 'Delete All') {
+            memory.clear();
+            void vscode.window.showInformationMessage('Memory cleared.');
+        }
     });
 
     // ---------------- config changes ----------------

@@ -57,3 +57,23 @@ test('detectCommands spots python projects', () => {
 test('detectCommands returns unknown for empty project', () => {
     assert.equal(detectCommands(['notes.txt']).packageManager, 'unknown');
 });
+
+test('policy: strict blocks catastrophic commands', () => {
+    assert.equal(analyseCommand('rm -rf /', 'strict').blocked, true);
+});
+
+test('policy: warn never blocks but flags high risk', () => {
+    const v = analyseCommand('rm -rf /', 'warn');
+    assert.equal(v.blocked, false);
+    assert.equal(v.risk, 'high');
+});
+
+test('policy: off performs no analysis', () => {
+    const v = analyseCommand('mkfs.ext4 /dev/sda1', 'off');
+    assert.equal(v.blocked, false);
+    assert.equal(v.risk, 'medium');
+});
+
+test('policy: off still rejects empty commands', () => {
+    assert.equal(analyseCommand('   ', 'off').blocked, true);
+});
