@@ -75,3 +75,22 @@
 
 ### Changed
 - Selecting a model writes provider + model to the user settings immediately and refreshes the panel state.
+
+## 1.0.0
+
+First stable release.
+
+### Highlights
+- Agentic chat inside VS Code: read, plan, edit, run, debug, verify.
+- Multi-file edits with diff previews, per-change approval, undo last / undo all.
+- Terminal execution with output capture, long-running dev servers with URL detection.
+- Diagnostics-driven fixing loop.
+- Persistent memory (\emember\ / \ecall\ / \orget\), saved chat sessions, message queue.
+- Model picker: DeepSeek, OpenAI, Anthropic, Gemini, local Ollama.
+- Slash commands, \@file\ / \@selection\ context, project rules (\AGENTS.md\), deep links.
+- Configurable safety policy: strict / warn / off.
+- 40 unit tests, stubbed smoke test for activation + all commands.
+
+### Packaging
+- Publisher: arpit-singh
+- Repository: https://github.com/arpitsingh404/ai-coding-agent

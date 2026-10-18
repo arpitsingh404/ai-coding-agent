@@ -4,9 +4,9 @@ An agentic AI software engineer inside VS Code. Chat in **English, Hindi or Hing
 
 Not a chatbot that prints code — it edits your workspace, with your approval on every risky step.
 
-> **New in 0.3.0:** persistent memory (`remember` / `recall` / `forget` tools + commands), multi-message queue (send while the agent is working), fixed task/plan tracker with progress bar, and 8 new memory tests.
->
-> **0.2.0:** slash commands, `@file` / `@selection` context, "Always allow" approvals, undo-all, live token meter, project rules (`AGENTS.md`), persistent chat history, deep-link task triggering and a marketplace icon.
+**Repository:** https://github.com/arpitsingh404/ai-coding-agent
+
+> **v1.0.0:** persistent memory, multi-message queue, model picker, task plan with progress, slash commands, `@file` / `@selection` context, configurable safety policy, saved chat sessions.
 
 ---
 
@@ -260,4 +260,13 @@ npm run package
 ## License
 
 MIT — the full text is in the bundled `LICENSE` file.
+
+## Author & Copyright
+
+**© 2026 Arpit Singh** — all rights reserved under the MIT license terms above.
+
+- GitHub: [@arpitsingh404](https://github.com/arpitsingh404)
+- Repository: [ai-coding-agent](https://github.com/arpitsingh404/ai-coding-agent)
+
+You may use, modify and distribute this software under the MIT license, provided the copyright notice above is retained in all copies or substantial portions of the software.
 
