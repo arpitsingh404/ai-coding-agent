@@ -93,6 +93,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.window.registerUriHandler({
             handleUri: async (uri: vscode.Uri) => {
                 const q = new URLSearchParams(uri.query || '');
+                const action = q.get('action') || '';
+                if (action === 'resetData') {
+                    await vscode.commands.executeCommand('aiCodingAgent.resetData');
+                    return;
+                }
                 const prompt = q.get('prompt') || q.get('task') || '';
                 const mode = q.get('mode') === 'ask' ? 'ask' : 'agent';
                 await panel.focus();
@@ -342,6 +347,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (ok === 'Clear Session') {
             panel.clearSession();
         }
+    });
+
+    reg('aiCodingAgent.resetData', async () => {
+        panel.clearSession();
+        panel.clearAllSessions();
+        await vscode.window.showInformationMessage('Chat data cleared (transcript, history, saved sessions).');
     });
 
     reg('aiCodingAgent.setApiKey', async () => {

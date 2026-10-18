@@ -2,7 +2,7 @@
   "name": "ai-coding-agent",
   "displayName": "AI Coding Agent",
   "description": "Agentic AI coding assistant inside VS Code: chat, live multi-file edits, terminal execution, auto-debugging and autonomous project work.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "arpit-singh",
   "license": "MIT",
   "engines": {
@@ -151,6 +151,11 @@
       {
         "command": "aiCodingAgent.clearSession",
         "title": "Clear Session",
+        "category": "AI Coding Agent"
+      },
+      {
+        "command": "aiCodingAgent.resetData",
+        "title": "Reset Chat Data",
         "category": "AI Coding Agent"
       }
     ],
